@@ -98,6 +98,17 @@ Timeout should be an integer number of seconds."
  timeout for the search."
  t nil)
 
+
+(autoload 'bibretrieve-from-csv "bibretrieve-base"
+    " Use bibretrieve on a csv file of author and title. For example 'Knuth , TeX'
+ 
+For every line you will be prompted to choose the appropriate article, and they will all
+be appended to the bibtex file that you specify. This is just a way to 'batch process' getting
+several references."
+ t nil)
+
+
 (provide 'bibretrieve)
+(provide 'bibretrieve-from-csv)
 
 ;;; bibretrieve.el ends here
