@@ -35,6 +35,10 @@ Usage
 
 `M-x bibretrieve` or `C-u M-x bibretrieve`.
 
+and
+
+`M-x bibretrieve-from-csv`
+
 Configuration
 -------------
 
