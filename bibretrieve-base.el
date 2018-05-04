@@ -620,13 +620,20 @@ ARG is the optional argument."
 Author and Title."
 
   (interactive
-   (list (read-file-name "CSV file: ") (read-file-name "Bib file: ")))
+   (list
+    (if (string-match "\\.csv$" buffer-file-name)
+	(read-file-name (concat "CSV file: [" buffer-file-name "] ") default-directory buffer-file-name)
+	(read-file-name "CSV file: "))
+
+    (if (string-match "\\.bib$" buffer-file-name)
+	(read-file-name (concat "Bib file: [" buffer-file-name "] ") default-directory buffer-file-name)
+	(read-file-name "Bib file: "))))
 
   (unless (file-exists-p bibfile)
     (let ((dir (file-name-directory bibfile)))
       (unless (file-exists-p dir)
         (make-directory dir)))
-    (write-region "" nil custom-file))
+    (write-region "" nil bibfile))
 
   (let ((buf (find-file-noselect csvfile)))
     (with-current-buffer buf
