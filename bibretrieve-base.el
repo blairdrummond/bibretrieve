@@ -223,19 +223,20 @@ Return list with entries."
     (setq found-list (bibretrieve-extract-bib-entries buffers))
     found-list))
 
-(defun bibretrieve-prompt-and-retrieve (&optional arg)
-  "Prompt for author and title and retrieve.
-If the optional argument ARG is an integer
+(defun bibretrieve-prompt-and-retrieve (&optional timeout-backend passed-author passed-title)
+  "Prompt for author and title and retrieve, unless specified.
+If the optional argument ARG is an integer OTHER THAN -1
 then it is used as the timeout (in seconds).
 If the optional argument ARG is non-nil and not integer,
 prompt for the backends to use and the timeout.
 Return list with entries."
-  (let* ((author (read-string "Author: "))
-	 (title (read-string "Title: "))
+  (let* ((author (if passed-author passed-author (read-string "Author: ")))
+	 (title  (if passed-title  passed-title  (read-string "Title: ")))
 	 backend backends timeout)
-    (when arg
-      (if (integerp arg)
-	  (setq timeout arg)
+    (when timeout-backend
+      (if (integerp timeout-backend)
+	  (unless (eq timeout-backend -1)
+	      (setq timeout timeout-backend))
 	(progn (setq backend (completing-read "Backend to use: [defaults] " (append bibretrieve-installed-backends '("DEFAULTS" "ALL")) nil t nil nil "DEFAULTS"))
 	       (setq timeout (read-string "Timeout (seconds): [5] " nil nil "5")))))
     (setq backends
@@ -290,11 +291,13 @@ else return nil."
     (mapconcat 'identity all "\n\n")
     )
 
-(defun bibretrieve-write-bib-items-bibliography (all bibfile marked complement)
+(defun bibretrieve-write-bib-items-bibliography (all bibfile marked complement &optional noask)
   "Append item to file.
 
 From ALL, append to a prompted file (BIBFILE is the default one) MARKED entries (or unmarked, if COMPLEMENT is t)."
-  (let ((file (read-file-name (if bibfile (concat "Bibfile: [" bibfile "] ") "Bibfile: ") default-directory bibfile)))
+  (let ((file (if noask
+		  (if bibfile bibfile (error "Must supply a bibfile"))
+		  (read-file-name (if bibfile (concat "Bibfile: [" bibfile "] ") "Bibfile: ") default-directory bibfile))))
     (if (find-file-other-window file)
 	(save-excursion
 	  (goto-char (point-max))
@@ -345,17 +348,21 @@ From ALL, append to a prompted file (BIBFILE is the default one) MARKED entries 
  a / A      Put all (marked) entries into current buffer.")
 
 ;; Modified version of reftex-offer-bib-menu
-(defun bibretrieve-offer-bib-menu (&optional arg)
+(defun bibretrieve-offer-bib-menu (&optional timeout-backend author title bibfile)
   "Offer bib menu and return list of selected items.
 ARG is the optional argument."
 
-  (let ((bibfile (bibretrieve-find-default-bibliography-file))
+  (if bibfile
+      (setq noask t)
+      (setq noask nil))
+  
+  (let ((bibfile (if bibfile bibfile (bibretrieve-find-default-bibliography-file)))
         found-list rtn key data selected-entries)
     (while
         (not
          (catch 'done
            ;; Retrieve and scan entries
-	   (setq found-list (bibretrieve-prompt-and-retrieve arg))
+	   (setq found-list (bibretrieve-prompt-and-retrieve timeout-backend author title))
 
            (unless found-list
              (error "No matches found"))
@@ -415,7 +422,7 @@ ARG is the optional argument."
                 (throw 'done t))
                ((eq key ?e)
                 ;; Take all marked and append them
-                (let ((file (bibretrieve-write-bib-items-bibliography found-list bibfile reftex-select-marked nil)))
+                (let ((file (bibretrieve-write-bib-items-bibliography found-list bibfile reftex-select-marked nil noask)))
 		  (when file
 		    (setq selected-entries
 			  (concat "BibTeX entries appended to " file))
@@ -423,7 +430,7 @@ ARG is the optional argument."
 		(message "File not found, nothing done"))
                ((eq key ?E)
                 ;; Take all unmarked and append them
-                (let ((file (bibretrieve-write-bib-items-bibliography found-list bibfile reftex-select-marked 'complement)))
+                (let ((file (bibretrieve-write-bib-items-bibliography found-list bibfile reftex-select-marked 'complement noask)))
 		  (when file
 		    (setq selected-entries
 			  (concat "BibTeX entries appended to " file))
@@ -435,7 +442,7 @@ ARG is the optional argument."
 		;; If nothing is marked, then mark current selection
 		(let ((marked reftex-select-marked))
 		    (unless marked (reftex-select-mark))
-		    (let ((file (bibretrieve-write-bib-items-bibliography found-list bibfile reftex-select-marked nil)))
+		    (let ((file (bibretrieve-write-bib-items-bibliography found-list bibfile reftex-select-marked nil noask)))
 		      (when file
 			(setq selected-entries (concat "BibTeX entries appended to " file))
 			(throw 'done t)))
@@ -486,12 +493,13 @@ timeout for the search."
       (reftex-kill-buffer "*RefTeX Select*")
       (kill-matching-buffers (concat "^" bibretrieve-buffer-name-prefix) nil t))))
 
+
 ;; Adapted from RefTeX
-(defun bibretrieve-do-retrieve (&optional arg)
+(defun bibretrieve-do-retrieve (&optional timeout-backend author title bibfile)
   "This really does the work of bibretrieve.
 ARG is the optional argument."
 
-  (let ((selected-entries (bibretrieve-offer-bib-menu arg)))
+  (let ((selected-entries (bibretrieve-offer-bib-menu timeout-backend author title bibfile)))
 
     (set-marker reftex-select-return-marker nil)
 
@@ -505,10 +513,6 @@ ARG is the optional argument."
     ))
 
 
-;; Return the citation key
-;;    (mapcar 'car selected-entries)))
-
-
 (defun bibretrieve-from-csv (csvfile bibfile)
   "Run bibretrieve, but on a csv file instead of with user entered
 Author and Title."
@@ -517,11 +521,11 @@ Author and Title."
    (list
     (if (string-match "\\.csv$" buffer-file-name)
 	(read-file-name (concat "CSV file: [" buffer-file-name "] ") default-directory buffer-file-name)
-	(read-file-name "CSV file: "))
+      (read-file-name "CSV file: "))
 
     (if (string-match "\\.bib$" buffer-file-name)
 	(read-file-name (concat "Bib file: [" buffer-file-name "] ") default-directory buffer-file-name)
-	(read-file-name "Bib file: "))))
+      (read-file-name "Bib file: "))))
 
   (unless (file-exists-p bibfile)
     (let ((dir (file-name-directory bibfile)))
@@ -532,153 +536,35 @@ Author and Title."
   (let ((buf (find-file-noselect csvfile)))
     (with-current-buffer buf
       (goto-char (point-min))
-      (while (not (eobp))
-        (let ((line (buffer-substring-no-properties
-                     (line-beginning-position) (line-end-position))))
 
-	  (let ((args (mapcar 'string-trim (split-string line ",")))
-		found-list rtn key data selected-entries)
+      ;; check for recursive edit
+      (unwind-protect
+	  (reftex-check-recursive-edit)
 
-	    (while
-		(not
-		 (catch 'done
-		   ;; Retrieve and scan entries
-		   (let ((buffers (apply 'bib-process args)) buffer-list buffer)
-		     (setq found-list (bibretrieve-extract-bib-entries buffers))
-		     (setq buffer-list (if (listp buffers) buffers (list buffers)))
-		     (while buffer-list
-		       (setq buffer (car buffer-list)
-			     buffer-list (cdr buffer-list))
-		       (kill-buffer buffer)
-		       )
-		     )
+	;; This function may also be called outside reftex-mode.
+	;; Thus look for the scanning info only if in reftex-mode.
+	(when reftex-mode
+	  (reftex-access-scan-info nil))
 
-		   (unless found-list
-		     (error "Sorry, no matches found"))
+	(while (not (eobp))
+	  (let ((line (buffer-substring-no-properties
+		       (line-beginning-position) (line-end-position))))
 
-		   ;; Remember where we came from
-		   (setq reftex-call-back-to-this-buffer (current-buffer))
-		   (set-marker reftex-select-return-marker (point))
+	    (let ((args (mapcar 'string-trim (split-string line ",")))
+		  found-list rtn key data selected-entries)
+	      
+	      ;; Call bibretrieve-do-retrieve, but protected
+	      (bibretrieve-do-retrieve (if current-prefix-arg current-prefix-arg -1)
+				       (car args)
+				       (cadr args)
+				       bibfile))) 
+	  (forward-line 1))
 
-		   ;; Offer selection
-		   (save-window-excursion
-		     (delete-other-windows)
-		     (let ((major-mode 'reftex-select-bib-mode))
-		       (reftex-kill-buffer "*RefTeX Select*")
-		       (switch-to-buffer-other-window "*RefTeX Select*")
-		       (unless (eq major-mode 'reftex-select-bib-mode)
-			 (reftex-select-bib-mode))
-		       (let ((buffer-read-only nil))
-			 (erase-buffer)
-			 (reftex-insert-bib-matches found-list)))
-		     (setq buffer-read-only t)
-		     (if (= 0 (buffer-size))
-			 (error "No matches found"))
-		     (setq truncate-lines t)
-		     (goto-char 1)
-		     (while t
-		       (setq rtn
-			     (reftex-select-item
-			      bibretrieve-select-prompt
-			      bibretrieve-select-help
-			      reftex-select-bib-mode-map
-			      nil
-			      'bibretrieve-selection-callback nil))
-		       (setq key (car rtn)
-			     data (nth 1 rtn))
-		       (unless key (throw 'done t))
-		       (cond
-			((eq key ?g)
-			 ;; Start over
-			 (throw 'done nil))
-			((eq key ?r)
-			 ;; Restrict with new regular expression
-			 (setq found-list (reftex-restrict-bib-matches found-list))
-			 (let ((buffer-read-only nil))
-			   (erase-buffer)
-			   (reftex-insert-bib-matches found-list))
-			 (goto-char 1))
-			((eq key ?A)
-			 ;; Take all
-			 (setq selected-entries found-list)
-			 (throw 'done t))
-			((eq key ?a)
-			 ;; Take all marked
-			 ;; If nothing is marked, then mark current selection
-			 (if (not reftex-select-marked)
-			     (reftex-select-mark))
-			 (setq selected-entries (mapcar 'car (nreverse reftex-select-marked)))
-			 (throw 'done t))
-			((eq key ?e)
-			 ;; Take all marked and append them
-			 (let ((file (bibretrieve-write-bib-items-bibliography-no-ask found-list bibfile reftex-select-marked nil)))
-			   (when file
-			     (setq selected-entries
-				   (concat "BibTeX entries appended to " file))
-			     (throw 'done t)))
-			 (message "File not found, nothing done"))
-			((eq key ?E)
-			 ;; Take all unmarked and append them
-			 (let ((file (bibretrieve-write-bib-items-bibliography-no-ask found-list bibfile reftex-select-marked 'complement)))
-			   (when file
-			     (setq selected-entries
-				   (concat "BibTeX entries appended to " file))
-			     (throw 'done t)))
-			 (message "File not found, nothing done"))
-			((or (eq key ?\C-m)
-			     (eq key 'return))
-			 ;; Take selected
-			 ;; If nothing is marked, then mark current selection
-			 (let ((marked reftex-select-marked))
-			   (unless marked (reftex-select-mark))
-			   (let ((file (bibretrieve-write-bib-items-bibliography-no-ask found-list bibfile reftex-select-marked nil)))
-			     (when file
-			       (setq selected-entries (concat "BibTeX entries appended to " file))
-			       (throw 'done t)))
-			   (unless marked (reftex-select-unmark)))
-			 (message "File not found, nothing done. Press q to exit."))
-			((stringp key)
-			 ;; Got this one with completion
-			 (setq selected-entries key)
-			 (throw 'done t))
-			(t
-			 (ding))))))))
-	    selected-entries))
-	(forward-line 1)))))
-
-
-(defun bib-process (author title)
-  "Prompt for author and title and retrieve.
-If the optional argument ARG is an integer
-then it is used as the timeout (in seconds).
-If the optional argument ARG is non-nil and not integer,
-prompt for the backends to use and the timeout."
-  (let* (backend backends timeout)
-    (setq backends
-	  (cond ((or (not backend) (equal backend "DEFAULTS"))
-		 (mapcar 'car bibretrieve-backends))
-		((equal backend "ALL")
-		 'bibretrieve-installed-backends)
-		(t
-		 `(,backend))))
-    (bibretrieve-retrieve author title backends timeout)))
-
-
-(defun bibretrieve-write-bib-items-bibliography-no-ask (all bibfile marked complement)
-  "Append item to file.
-
-From ALL, append to a promped file (BIBFILE is the default one) MARKED entries (or unmarked, if COMPLEMENT is t)."
-  (if (find-file-other-window bibfile)
-      (save-excursion
-	(goto-char (point-max))
-	(insert "\n")
-	(insert (bibretrieve-extract-bib-items all marked complement))
-	(insert "\n")
-	(save-buffer)
-	bibfile
-	)
-    (error "Invalid file")))
-
+	(progn
+	  (reftex-kill-temporary-buffers)
+	  (reftex-kill-buffer "*BibRetrieve Record*")
+	  (reftex-kill-buffer "*RefTeX Select*")
+	  (kill-matching-buffers (concat "^" bibretrieve-buffer-name-prefix) nil t))))))
 
 (provide 'bibretrieve-base)
 
